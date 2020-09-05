@@ -11,6 +11,7 @@ for terminal use, like GNU ls and dircolors. """
 from collections import OrderedDict
 from io import StringIO, TextIOBase
 import os
+import shlex
 import stat
 
 from ._defaults import DEFAULT_DIRCOLORS
@@ -204,6 +205,9 @@ class Dircolors:
         return text
 
     def format_mode(self, text, mode):
+        return self.format_ext_mode(text, os.path.splitext(text)[1], mode)
+
+    def format_ext_mode(self, text, ext, mode):
         """ Format and color the given text based on the given file mode.
 
         `mode` can be an integer, usually the st_mode field of an os.stat_result
@@ -258,12 +262,11 @@ class Dircolors:
             return self._format_code(text, 'ex')
 
         # regular file, format according to its extension
-        _, ext = os.path.splitext(text)
         if ext:
             return self._format_ext(text, ext)
         return text
 
-    def format(self, file, cwd=None, follow_symlinks=False, show_target=False):
+    def format(self, file, cwd=None, follow_symlinks=False, show_target=False, quote=False):
         """ Format and color the file given by the name `file`.
 
         If `cwd` is not None, it should be a string for the directory relative
@@ -279,7 +282,7 @@ class Dircolors:
 
         if not (cwd is None or isinstance(cwd, str) or isinstance(cwd, int)):
             # TODO: handle Python 3.6 path-like objects too
-            raise ValueError('cwd must be str or int, not %s'%type(cwd))
+            raise ValueError('cwd must be str or int, not %r'%type(cwd))
 
         if not self.loaded:
             return file
@@ -287,7 +290,12 @@ class Dircolors:
         try:
             statbuf = stat_at(file, cwd, follow_symlinks)
         except OSError as e:
-            return '%s [Error stat-ing: %s]'%(file, e.strerror)
+            return '%r [Error stat-ing: %s]'%(file, e.strerror)
+
+        if quote:
+            quoted = shlex.quote(file)
+        else:
+            quoted = file
 
         mode = statbuf.st_mode
         if (not follow_symlinks) and show_target and stat.S_ISLNK(mode):
@@ -303,10 +311,12 @@ class Dircolors:
                 link_dir = os.path.dirname(os.path.join(cwd_dir, file).rstrip('/'))
             try:
                 stat_at(target_path, link_dir) # check for broken link
-                target = self.format(target_path, link_dir, False, False)
+                target = self.format(target_path, link_dir, False, False, quote)
             except OSError:
                 # format as "orphan"
+                if quote:
+                    target_path = shlex.quote(target_path)
                 target = self._format_code(target_path, 'or') + ' [broken link]'
-            return self._format_code(file, 'ln') + ' -> ' + target
+            return self._format_code(quoted, 'ln') + ' -> ' + target
 
-        return self.format_mode(file, mode)
+        return self.format_ext_mode(quoted, os.path.splitext(file)[1], mode)
