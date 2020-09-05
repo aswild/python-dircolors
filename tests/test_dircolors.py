@@ -84,6 +84,17 @@ class TestDircolorsFormat(unittest.TestCase):
         self.assertEqual(self.dc.format_mode('filename.tar', 0o100644),
                                              '\033[01;31mfilename.tar\033[0m')
 
+    def test_format_ext_mode(self):
+        self.dc.load_defaults()
+        # should have the color for directory, not png nor tar
+        self.assertEqual(
+            self.dc.format_ext_mode('foo.tar', '.png', 0o040755),
+            _wrap('foo.tar', '01;34'))
+        # should have the color for png, not tar
+        self.assertEqual(
+            self.dc.format_ext_mode('foo.tar', '.png', 0o644),
+            _wrap('foo.tar', '01;35'))
+
 class TestDircolorsFile(unittest.TestCase):
     """ Higher level tests on actual files. """
 
@@ -91,14 +102,17 @@ class TestDircolorsFile(unittest.TestCase):
     # 0: name
     # 1: mode to create with, or None to do custom stuff
     # 2: expected mode for it to format as, or None for no format
+    # 3: expected quoted name
     _test_files = [
-        ('normalfile',  0o644,  None),
-        ('execfile',    0o755,  '01;32'),
-        ('tarfile.tar', 0o644,  '01;31'),
-        ('image.png',   0o644,  '01;35'),
-        ('suidfile',    0o4755, '37;41'),
-        ('subdir',      None,   '01;34'),
-        ('link.png',    None,   '01;36'),
+        ('normalfile',                0o644,   None,    'normalfile'),
+        ('execfile',                  0o755,   '01;32', 'execfile'),
+        ('tarfile.tar',               0o644,   '01;31', 'tarfile.tar'),
+        ('image.png',                 0o644,   '01;35', 'image.png'),
+        ('suidfile',                  0o4755,  '37;41', 'suidfile'),
+        ('subdir',                    None,    '01;34', 'subdir'),
+        ('link.png',                  None,    '01;36', 'link.png'),
+        ('with spaces.png',           0o644,   '01;35', "'with spaces.png'"),
+        (' horrible"abomination.png', None,    '01;36', "' horrible\"abomination.png'"),
     ]
 
     @classmethod
@@ -110,7 +124,7 @@ class TestDircolorsFile(unittest.TestCase):
         _debug('testing in %s'%cls.tmpdir)
 
         # create normal files
-        for filename, mode, _ in cls._test_files:
+        for filename, mode, _, _ in cls._test_files:
             if mode:
                 file = os.path.join(cls.tmpdir, filename)
                 fd = os.open(file, os.O_WRONLY | os.O_CREAT, mode)
@@ -119,6 +133,7 @@ class TestDircolorsFile(unittest.TestCase):
         # make special files (and a subdirectory)
         os.mkdir(cls.tmpdir + '/subdir')
         os.symlink('image.png', cls.tmpdir + '/link.png')
+        os.symlink('with spaces.png', cls.tmpdir + '/ horrible"abomination.png')
 
     @classmethod
     def tearDownClass(cls):
@@ -129,15 +144,21 @@ class TestDircolorsFile(unittest.TestCase):
             shutil.rmtree(cls.tmpdir)
 
     def test_files(self):
-        for filename, _, fmt in self._test_files:
+        for filename, _, fmt, _ in self._test_files:
             file = os.path.join(self.tmpdir, filename)
             with self.subTest(file=file, fmt=fmt):
                 self.assertEqual(self.dc.format(file), _wrap(file, fmt))
 
     def test_with_cwd(self):
-        for filename, _, fmt in self._test_files:
+        for filename, _, fmt, _ in self._test_files:
             with self.subTest(file=filename, fmt=fmt):
                 self.assertEqual(self.dc.format(filename, cwd=self.tmpdir), _wrap(filename, fmt))
+
+    def test_files_quoted(self):
+        for filename, _, fmt, quoted in self._test_files:
+            with self.subTest(file=filename, fmt=fmt):
+                self.assertEqual(self.dc.format(filename, quote=True, cwd=self.tmpdir),
+                                 _wrap(quoted, fmt))
 
     def test_follow_symlink(self):
         file = os.path.join(self.tmpdir, 'link.png')
@@ -147,3 +168,14 @@ class TestDircolorsFile(unittest.TestCase):
         file = os.path.join(self.tmpdir, 'link.png')
         self.assertEqual(self.dc.format(file, show_target=True),
                          '\033[01;36m' + file + '\033[0m -> \033[01;35mimage.png\033[0m')
+
+    def test_follow_symlink_quoted(self):
+        file = ' horrible"abomination.png'
+        self.assertEqual(self.dc.format(file, follow_symlinks=True, quote=True, cwd=self.tmpdir),
+                         _wrap("' horrible\"abomination.png'", '01;35'))
+
+    def test_symlink_target_quoted(self):
+        file = ' horrible"abomination.png'
+        self.assertEqual(self.dc.format(file, show_target=True, quote=True, cwd=self.tmpdir),
+                         '\033[01;36m' + "' horrible\"abomination.png'" +
+                         "\033[0m -> \033[01;35m'with spaces.png'\033[0m")
