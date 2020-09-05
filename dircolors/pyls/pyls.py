@@ -29,9 +29,9 @@ def main():
                 if f != '.' and len(files) > 1:
                     print(dc.format(f) + ':')
                 for ff in sorted(os.listdir(f)):
-                    print(dc.format(ff, f, show_target=True))
+                    print(dc.format(ff, f, show_target=True, quote=True))
                 print()
             else:
-                print(dc.format(f, show_target=True))
+                print(dc.format(f, show_target=True, quote=True))
         except OSError as e:
             print('%s: error: %s'%(f, e), file=sys.stderr)
